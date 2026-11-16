@@ -93,9 +93,12 @@ class PianoTranscription(object):
         output_dict = forward(self.model, segments, batch_size=self.batch_size)
         """{'reg_onset_output': (N, segment_frames, classes_num), ...}"""
 
-        # Deframe to original length
+        # Deframe and discard predictions for the zero-padded audio tail.
+        # audio_len counts samples; model outputs count 100-Hz frames.
+        audio_duration = audio_len / config.sample_rate
+        valid_frames = int(np.ceil(audio_duration * self.frames_per_second)) + 1
         for key in output_dict.keys():
-            output_dict[key] = self.deframe(output_dict[key])[0 : audio_len]
+            output_dict[key] = self.deframe(output_dict[key])[0 : valid_frames]
         """output_dict: {
           'reg_onset_output': (segment_frames, classes_num), 
           'reg_offset_output': (segment_frames, classes_num), 
@@ -127,7 +130,8 @@ class PianoTranscription(object):
         # Write MIDI events to file
         if midi_path:
             write_events_to_midi(start_time=0, note_events=est_note_events, 
-                pedal_events=est_pedal_events, midi_path=midi_path)
+                pedal_events=est_pedal_events, midi_path=midi_path,
+                end_time=audio_duration)
             print('Write out to {}'.format(midi_path))
 
         transcribed_dict = {

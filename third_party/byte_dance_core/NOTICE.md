@@ -31,5 +31,7 @@ Onsets and Offsets Times，arXiv:2010.01815，2020。
 
 ## 后续修改
 
-后续若修改本目录中的上游文件，修改文件会在文件头或本 NOTICE 中标明。
-修改不会改变模型、特征、分段或 MIDI 语义。
+Better PianoTrans 修改了 `pytorch/inference.py` 和 `utils/utilities.py`。
+推理结果按原音频时长截去补零尾部。
+生成 MIDI 时限制事件终点，并在原音频终点写曲终标记。
+模型权重、声学特征与推理分段保持原样。

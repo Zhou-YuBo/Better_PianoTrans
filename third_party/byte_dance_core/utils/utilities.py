@@ -2,6 +2,7 @@
 # This preserves the upstream conversion, channel mixing, and resampling behavior.
 import os
 import logging
+import math
 import h5py
 import soundfile
 import librosa
@@ -560,7 +561,8 @@ class TargetProcessor(object):
         return output
 
 
-def write_events_to_midi(start_time, note_events, pedal_events, midi_path):
+def write_events_to_midi(start_time, note_events, pedal_events, midi_path,
+    end_time=None):
     """Write out note events to MIDI file.
 
     Args:
@@ -570,6 +572,7 @@ def write_events_to_midi(start_time, note_events, pedal_events, midi_path):
         {'midi_note': 58, 'onset_time': 696.99585, 'offset_time': 697.18646, 'velocity': 50}
         ...]
       midi_path: str
+      end_time: optional absolute end time of the source audio, in seconds.
     """
     from mido import Message, MidiFile, MidiTrack, MetaMessage
     
@@ -596,22 +599,36 @@ def write_events_to_midi(start_time, note_events, pedal_events, midi_path):
     message_roll = []
 
     for note_event in note_events:
+        onset = note_event['onset_time']
+        offset = note_event['offset_time']
+        if end_time is not None:
+            onset = max(start_time, onset)
+            offset = min(end_time, offset)
+            if onset >= end_time or offset <= onset:
+                continue
         # Onset
         message_roll.append({
-            'time': note_event['onset_time'], 
+            'time': onset,
             'midi_note': note_event['midi_note'], 
             'velocity': note_event['velocity']})
 
         # Offset
         message_roll.append({
-            'time': note_event['offset_time'], 
+            'time': offset,
             'midi_note': note_event['midi_note'], 
             'velocity': 0})
 
     if pedal_events:
         for pedal_event in pedal_events:
-            message_roll.append({'time': pedal_event['onset_time'], 'control_change': 64, 'value': 127})
-            message_roll.append({'time': pedal_event['offset_time'], 'control_change': 64, 'value': 0})
+            onset = pedal_event['onset_time']
+            offset = pedal_event['offset_time']
+            if end_time is not None:
+                onset = max(start_time, onset)
+                offset = min(end_time, offset)
+                if onset >= end_time or offset <= onset:
+                    continue
+            message_roll.append({'time': onset, 'control_change': 64, 'value': 127})
+            message_roll.append({'time': offset, 'control_change': 64, 'value': 0})
 
     # Sort MIDI messages by time
     message_roll.sort(key=lambda note_event: note_event['time'])
@@ -626,7 +643,11 @@ def write_events_to_midi(start_time, note_events, pedal_events, midi_path):
                 track1.append(Message('note_on', note=message['midi_note'], velocity=message['velocity'], time=diff_ticks))
             elif 'control_change' in message.keys():
                 track1.append(Message('control_change', channel=0, control=message['control_change'], value=message['value'], time=diff_ticks))
-    track1.append(MetaMessage('end_of_track', time=1))
+    if end_time is None:
+        end_ticks = previous_ticks + 1
+    else:
+        end_ticks = max(previous_ticks, math.ceil((end_time - start_time) * ticks_per_second))
+    track1.append(MetaMessage('end_of_track', time=end_ticks - previous_ticks))
     midi_file.tracks.append(track1)
 
     midi_file.save(midi_path)

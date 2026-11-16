@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 
 import numpy as np
+import mido
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,6 +59,8 @@ np.savez(root / '.codex-tmp/raw_predictions_40s.npz', **result['output_dict'])
             else:
                 actual_hash = hashlib.sha256(raw[key].tobytes()).hexdigest().upper()
             self.assertEqual(actual_hash, expected_hash, key)
+        midi = mido.MidiFile(str(ROOT / ".codex-tmp/transcription_40s.mid"))
+        self.assertAlmostEqual(midi.length, 40.0, delta=1 / 768)
 
 
 if __name__ == "__main__":
