@@ -24,6 +24,8 @@ class ProductPlaybackService:
         self._mode: str | None = None
         self._state = "idle"
         self._position = 0.0
+        self._positions = {"audio": 0.0, "midi": 0.0}
+        self._ended: set[str] = set()
         self._durations = {"audio": 0.0, "midi": 0.0}
         self._volumes = {"audio": 1.0, "midi": 0.5}
         self._muted = {"audio": False, "midi": False}
@@ -37,6 +39,7 @@ class ProductPlaybackService:
                   if isinstance(self._source, EntryRef) else self._source)
         return {"sessionId": self._session_id, "source": source,
                 "mode": self._mode, "state": self._state, "positionSeconds": self._position,
+                "positions": dict(self._positions),
                 "durations": dict(self._durations), "volumes": dict(self._volumes), "muted": dict(self._muted)}
 
     def request(self, ref: EntryRef, mode: str) -> dict:
@@ -62,6 +65,8 @@ class ProductPlaybackService:
         self._mode = mode
         self._state = "preparing"
         self._position = 0.0
+        self._positions = {"audio": 0.0, "midi": 0.0}
+        self._ended.clear()
         self._durations = {"audio": 0.0, "midi": 0.0}
         audio, midi = self._backend_factory()
         self._backends = {"audio": audio, "midi": midi}
@@ -87,11 +92,21 @@ class ProductPlaybackService:
         elif event_type == "duration":
             self._durations[kind] = float(event.get("value", event.get("duration", 0)))
         elif event_type == "position":
-            self._position = float(event.get("seconds", event.get("position", 0)))
-        elif event_type == "ended" and self._state == "playing" and self._mode != "paired":
-            self._backends[kind].seek(0.0)
-            self._backends[kind].start()
-            self._position = 0.0
+            if kind not in self._ended:
+                self._positions[kind] = float(event.get("seconds", event.get("position", 0)))
+                self._position = max(self._positions.values())
+        elif event_type == "ended" and self._state == "playing":
+            self._positions[kind] = self._durations[kind]
+            self._position = max(self._positions.values())
+            self._ended.add(kind)
+            if self._ended == set(self._ready):
+                self._ended.clear()
+                for active in self._ready:
+                    self._backends[active].seek(0.0)
+                    self._positions[active] = 0.0
+                self._position = 0.0
+                for active in self._ready:
+                    self._backends[active].start()
         elif event_type == "error":
             self._state = "error"
         if self._on_event is not None:
@@ -111,7 +126,8 @@ class ProductPlaybackService:
         self._require(session_id)
         if self._state in ("paused", "stopped", "ready"):
             for kind in self._ready:
-                self._backends[kind].start()
+                if kind not in self._ended:
+                    self._backends[kind].start()
             self._state = "playing"
 
     def pause(self, session_id: str) -> None:
@@ -127,15 +143,19 @@ class ProductPlaybackService:
             self._backends[kind].stop()
             self._backends[kind].seek(0.0)
         self._position = 0.0
+        self._positions = {"audio": 0.0, "midi": 0.0}
+        self._ended.clear()
         self._state = "stopped"
 
     def seek(self, session_id: str, seconds: float) -> None:
         self._require(session_id)
         position = max(0.0, float(seconds))
+        self._ended.clear()
         if "midi" in self._ready:
             self._clear_notes()
         for kind in self._ready:
             self._backends[kind].seek(position)
+            self._positions[kind] = position
         self._position = position
         if self._state == "stopped":
             self.play(session_id)
@@ -167,6 +187,7 @@ class ProductPlaybackService:
                 backend.deleteLater()
         self._backends = {}
         self._ready = {}
+        self._ended.clear()
 
     def _clear_notes(self) -> None:
         if self._on_event is not None:

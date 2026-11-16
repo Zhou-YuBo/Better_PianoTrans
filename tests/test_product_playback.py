@@ -102,6 +102,41 @@ class ProductPlaybackTests(unittest.TestCase):
         midi.callback({"type": "ready", "duration": 42.5})
         self.assertEqual(42.5, self.player.snapshot()["durations"]["midi"])
 
+    def test_paired_tracks_wait_for_the_later_end_then_loop_together(self):
+        result = self.player.request(EntryRef(EntryKind.FAVORITE, self.favorite), "paired")
+        audio, midi = self.backends[-1]
+        audio.callback({"type": "duration", "value": 12.0})
+        midi.callback({"type": "ready", "duration": 8.0})
+        audio.callback({"type": "position", "seconds": 7.0})
+        midi.callback({"type": "position", "seconds": 6.0})
+        self.assertEqual({"audio": 7.0, "midi": 6.0}, self.player.snapshot()["positions"])
+
+        midi.callback({"type": "ended"})
+        midi.callback({"type": "position", "seconds": 0.0})
+        self.assertEqual({"audio": 7.0, "midi": 8.0}, self.player.snapshot()["positions"])
+        self.assertEqual(1, len([call for call in midi.calls if call[0] == "start"]))
+        self.player.pause(result["sessionId"])
+        self.player.play(result["sessionId"])
+        self.assertEqual(1, len([call for call in midi.calls if call[0] == "start"]))
+        self.assertEqual(2, len([call for call in audio.calls if call[0] == "start"]))
+
+        audio.callback({"type": "ended"})
+        self.assertEqual({"audio": 0.0, "midi": 0.0}, self.player.snapshot()["positions"])
+        self.assertEqual("playing", self.player.snapshot()["state"])
+        self.assertEqual(3, len([call for call in audio.calls if call[0] == "start"]))
+        self.assertEqual(2, len([call for call in midi.calls if call[0] == "start"]))
+
+    def test_paired_audio_can_be_the_shorter_track(self):
+        self.player.request(EntryRef(EntryKind.FAVORITE, self.favorite), "paired")
+        audio, midi = self.backends[-1]
+        audio.callback({"type": "duration", "value": 5.0})
+        midi.callback({"type": "ready", "duration": 9.0})
+        audio.callback({"type": "ended"})
+        self.assertEqual(1, len([call for call in audio.calls if call[0] == "start"]))
+        midi.callback({"type": "ended"})
+        self.assertEqual(2, len([call for call in audio.calls if call[0] == "start"]))
+        self.assertEqual(2, len([call for call in midi.calls if call[0] == "start"]))
+
     def test_conflict_preview_replaces_existing_audio_session(self):
         self.player.request(EntryRef(EntryKind.FAVORITE, self.favorite), "audio")
         previous_audio = self.backends[-1][0]

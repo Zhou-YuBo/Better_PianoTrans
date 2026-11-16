@@ -298,7 +298,8 @@ class WorkbenchFacade(QObject):
                             "favorites": {"items": [], "totalCount": 0},
                             "collections": [], "deviceMode": "auto"}
         self._playback = {"state": "idle", "sessionId": None, "durations": {},
-                          "positionSeconds": 0, "volumes": {"audio": 1, "midi": .5},
+                          "positionSeconds": 0, "positions": {"audio": 0, "midi": 0},
+                          "volumes": {"audio": 1, "midi": .5},
                           "muted": {"audio": False, "midi": False}}
         self._pending_unverified = {}
         soundfont = Path(os.environ.get("PIANOTRANS_SOUNDFONT", str(PROJECT_ROOT / ".codex-cache" / "soundfonts" / "MuseScore_General-0.2.0.sf3")))

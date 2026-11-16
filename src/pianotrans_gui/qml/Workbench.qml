@@ -426,7 +426,7 @@ ApplicationWindow {
         id: lane
         property string track: "midi"
         property real seekPreviewSeconds: -1
-        readonly property real shownPosition: seekPreviewSeconds >= 0 ? seekPreviewSeconds : (root.player.positionSeconds || 0)
+        readonly property real shownPosition: seekPreviewSeconds >= 0 ? seekPreviewSeconds : (root.player.positions[track] || 0)
         readonly property bool hasSession: !!root.player.sessionId
         readonly property bool active: hasSession && (root.player.mode === track || root.player.mode === "paired")
         function secondsAt(x) {
