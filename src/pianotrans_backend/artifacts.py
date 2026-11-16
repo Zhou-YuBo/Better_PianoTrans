@@ -29,6 +29,7 @@ class FileSnapshot:
     sha256: str
     size_bytes: int
     mtime_ns: int
+    file_id: int = 0
 
 
 @dataclass(frozen=True)
@@ -56,8 +57,9 @@ def snapshot_file(path: Path, retries: int = 1) -> FileSnapshot:
             raise
         except OSError as exc:
             raise ArtifactSnapshotError(f"无法读取文件：{resolved}") from exc
-        if (before.st_size, before.st_mtime_ns) == (after.st_size, after.st_mtime_ns):
-            return FileSnapshot(str(resolved), digest.hexdigest(), after.st_size, after.st_mtime_ns)
+        if (before.st_size, before.st_mtime_ns, before.st_ino) == (
+                after.st_size, after.st_mtime_ns, after.st_ino):
+            return FileSnapshot(str(resolved), digest.hexdigest(), after.st_size, after.st_mtime_ns, after.st_ino)
         if attempt == retries:
             raise ArtifactSnapshotError(f"文件在读取期间发生变化：{resolved}")
     raise AssertionError("unreachable")

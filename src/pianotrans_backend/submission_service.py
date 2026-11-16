@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import os
+import json
 from pathlib import Path
 from uuid import uuid4
 
-from .artifacts import ArtifactSnapshotError, snapshot_file, verify_file
+from .artifacts import ArtifactSnapshotError, FileSnapshot, snapshot_file, verify_file
 from .devices import resolve_device, validate_device_mode
 from .model import Task, TaskStatus, utc_now
 from .product_store import ProductRepository, StaleRevision
@@ -116,13 +117,17 @@ class SubmissionService:
             raise ValueError("task has no pending conflict")
         targets = ([row] + [item for item in session["items"] if item is not row and item["status"] == "conflict"]
                    if apply_to_remaining else [row])
-        before = [(item, item["status"], item.get("midiPath")) for item in targets]
+        before = [(item, item["status"], item.get("midiPath"), item.get("overwrite")) for item in targets]
         try:
             changed = [self._decide_one(session, item, choice) for item in targets]
         except Exception:
-            for item, status, midi_path in before:
+            for item, status, midi_path, overwrite in before:
                 item["status"] = status
                 item["midiPath"] = midi_path
+                if overwrite is None:
+                    item.pop("overwrite", None)
+                else:
+                    item["overwrite"] = overwrite
             raise
         return {"items": changed} if apply_to_remaining else changed[0]
 
@@ -142,10 +147,31 @@ class SubmissionService:
             else:
                 raise ValueError("no free numbered MIDI name")
         elif choice == "overwrite":
-            raise ValueError("safe overwrite is unavailable; choose another name")
+            if "targetSnapshot" not in row:
+                raise StaleRevision("同名 MIDI 无法核验，请重新预检")
+            if any(item is not row and item["status"] == "ready" and
+                   os.path.normcase(item.get("midiPath", "")) == os.path.normcase(row["midiPath"])
+                   for item in session["items"]):
+                raise ValueError("本批次有多个任务使用同一个 MIDI 路径，请另存编号")
+            self._verify_target(row["midiPath"], row["targetSnapshot"])
+            row["overwrite"] = True
+            row["status"] = "ready"
         else:
             raise ValueError("invalid conflict choice")
         return self._public_item(row)
+
+    @staticmethod
+    def _verify_target(path: str, expected: FileSnapshot | None) -> None:
+        if expected is None:
+            if Path(path).exists():
+                raise StaleRevision("目标 MIDI 已出现，请重新预检")
+            return
+        try:
+            current = snapshot_file(Path(path))
+        except (OSError, ArtifactSnapshotError) as exc:
+            raise StaleRevision("同名 MIDI 无法核验，请重新预检") from exc
+        if current != expected:
+            raise StaleRevision("同名 MIDI 已变化，请重新预检")
 
     def commit_submission(self, submission_id: str) -> dict:
         session = self._sessions[submission_id]
@@ -165,8 +191,7 @@ class SubmissionService:
                 success = self.store.get_success(item["recoveryRecordId"])
                 if success is None or verify_file(Path(success["outputPath"]), success["outputSha256"]).status.value == "match":
                     raise StaleRevision("registered result is available again")
-            if Path(item["midiPath"]).exists():
-                raise StaleRevision("target changed after preparation")
+            self._verify_target(item["midiPath"], item.get("targetSnapshot") if item.get("overwrite") else None)
         ids = self.store.enqueue_prepared(submission_id, ready, session["deviceMode"])
         del self._sessions[submission_id]
         self._pending.extend(ids)
@@ -196,12 +221,14 @@ class SubmissionService:
                 if (current.sha256, current.size_bytes, current.mtime_ns) != (
                     row["input_sha256"], row["input_size"], row["input_mtime"]):
                     raise StaleRevision("input changed before worker start")
-                if Path(row["midi_path"]).exists():
-                    raise StaleRevision("target created before worker start")
+                target_snapshot = (FileSnapshot(**json.loads(row["target_snapshot"]))
+                                   if row["target_snapshot"] else None)
+                self._verify_target(row["midi_path"], target_snapshot)
                 self.store.mark_running(attempt_id)
                 task = Task(attempt_id, Path(row["input_path"]), Path(row["midi_path"]),
                             row["batch_size"], utc_now(), device_mode=row["device_mode"],
-                            status=TaskStatus.RUNNING)
+                            status=TaskStatus.RUNNING, overwrite=target_snapshot is not None,
+                            target_snapshot=target_snapshot)
                 self._handle = self.starter.start(task)
                 self._current = attempt_id
                 return

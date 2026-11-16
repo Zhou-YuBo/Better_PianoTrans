@@ -6,6 +6,7 @@ import time
 import unittest
 import shutil
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -139,7 +140,7 @@ class ProductFacadeTests(unittest.TestCase):
         self.assertEqual(20, self.facade.projection["work"]["checkedCount"])
         window.close()
 
-    def test_qml_conflict_keeps_alternate_choices_after_overwrite_refusal(self):
+    def test_qml_conflict_accepts_confirmed_overwrite(self):
         (self.root / "sample.mid").write_bytes(b"MThd external")
         imported = self.facade.command("importAudio", {"paths": [str(self.audio)]})
         self.wait_for(lambda: any(row[0] == imported for row in self.results))
@@ -161,12 +162,50 @@ class ProductFacadeTests(unittest.TestCase):
                             for item in visible_items(window.contentItem())))
         click_button("覆盖现有 MIDI")
         self.wait_for(lambda: any(row[1] == "decideConflict" for row in self.results))
-        self.assertFalse(next(row[2] for row in self.results if row[1] == "decideConflict")["ok"])
-        self.assertTrue(window.property("submissionId"))
-        self.assertTrue(any(item.property("text") == "另存编号"
-                            for item in visible_items(window.contentItem())))
+        self.assertTrue(next(row[2] for row in self.results if row[1] == "decideConflict")["ok"])
+        self.wait_for(lambda: any(row[1] == "commitSubmission" for row in self.results))
+        self.assertTrue(next(row[2] for row in self.results if row[1] == "commitSubmission")["ok"])
         self.assertEqual(b"MThd external", (self.root / "sample.mid").read_bytes())
         window.close()
+
+    def test_settings_show_database_credit_and_persist_device(self):
+        self.wait_for(lambda: bool(self.facade.projection.get("databasePath")))
+        self.assertEqual(str((self.root / "product.db").resolve()),
+                         self.facade.projection["databasePath"])
+        engine = QQmlApplicationEngine()
+        engine.rootContext().setContextProperty("facade", self.facade)
+        engine.load(QUrl.fromLocalFile(str(PROJECT_ROOT / "src" / "pianotrans_gui" / "qml" / "Workbench.qml")))
+        self.assertTrue(engine.rootObjects())
+        window = engine.rootObjects()[0]
+
+        def click_button(label):
+            buttons = [item for item in visible_items(window.contentItem())
+                       if item.metaObject().className() == "WorkButton"]
+            button = next((item for item in buttons if item.property("text") == label), None)
+            self.assertIsNotNone(button, [item.property("text") for item in buttons])
+            center = button.mapToScene(QPointF(button.width() / 2, button.height() / 2))
+            QTest.mouseClick(window, Qt.MouseButton.LeftButton, pos=QPoint(int(center.x()), int(center.y())))
+
+        click_button("设置")
+        self.wait_for(lambda: any(item.property("text") == "Better PianoTrans 设置"
+                                  for item in visible_items(window.contentItem())))
+        self.assertTrue(any("孔秋强" in str(item.property("text"))
+                            for item in visible_items(window.contentItem())))
+        self.assertTrue(any(str(self.root / "product.db") == item.property("text")
+                            for item in visible_items(window.contentItem())))
+        click_button("仅 CPU")
+        self.wait_for(lambda: self.facade.projection["deviceMode"] == "cpu")
+        click_button("完成")
+        window.close()
+
+    def test_settings_legal_entries_resolve_to_existing_files(self):
+        for kind, expected in (("license", PROJECT_ROOT / "LICENSE"),
+                               ("credits", PROJECT_ROOT / "third_party" / "byte_dance_core" / "NOTICE.md"),
+                               ("third_party", PROJECT_ROOT / "third_party")):
+            with self.subTest(kind=kind), patch("pianotrans_gui.product_facade.QDesktopServices.openUrl") as open_url:
+                self.facade.openLegalFile(kind)
+                open_url.assert_called_once()
+                self.assertEqual(expected.resolve(), Path(open_url.call_args.args[0].toLocalFile()).resolve())
 
     @unittest.skipUnless(DEFAULT_CHECKPOINT.exists(), "checkpoint is unavailable")
     def test_qml_start_button_reaches_real_cpu_terminal_state(self):

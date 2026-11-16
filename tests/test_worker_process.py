@@ -6,8 +6,10 @@ import os
 import sys
 import tempfile
 import unittest
+from queue import SimpleQueue
 from pathlib import Path
 from time import monotonic, sleep
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,10 +17,49 @@ sys.path.insert(0, str(ROOT / "src"))
 os.environ.setdefault("MPLCONFIGDIR", str(ROOT / ".codex-cache" / "matplotlib"))
 
 from pianotrans_backend.cli import DEFAULT_CHECKPOINT
+from pianotrans_backend.artifacts import snapshot_file
 from pianotrans_backend.history import HistoryRepository
 from pianotrans_backend.model import Task, TaskStatus
 from pianotrans_backend.scheduler import Scheduler
-from pianotrans_backend.worker import ProcessWorkerStarter
+from pianotrans_backend.worker import ProcessWorkerStarter, run_transcription_worker
+
+
+class WorkerOverwriteTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory(dir=ROOT / ".codex-tmp")
+        self.root = Path(self.tempdir.name)
+        self.audio = self.root / "input.wav"
+        self.midi = self.root / "output.mid"
+        self.audio.write_bytes(b"audio")
+        self.midi.write_bytes(b"old midi")
+
+    def tearDown(self) -> None:
+        self.tempdir.cleanup()
+
+    def run_worker(self, change_target: bool) -> dict:
+        expected = snapshot_file(self.midi)
+
+        def transcribe(_source, _directory, _checkpoint, **options):
+            options["midi_path"].write_bytes(b"new midi")
+            if change_target:
+                self.midi.write_bytes(b"external midi")
+            return {"status": "succeeded"}
+
+        result_queue = SimpleQueue()
+        with patch("pianotrans_backend.cli.transcribe_one", side_effect=transcribe):
+            run_transcription_worker(result_queue, "attempt", self.audio, self.midi, 16,
+                                     True, "cpu", self.root / "checkpoint.pt", self.root, expected)
+        return result_queue.get_nowait()
+
+    def test_worker_replaces_confirmed_midi(self) -> None:
+        self.assertEqual("succeeded", self.run_worker(False)["status"])
+        self.assertEqual(b"new midi", self.midi.read_bytes())
+
+    def test_worker_preserves_midi_changed_during_transcription(self) -> None:
+        result = self.run_worker(True)
+        self.assertEqual("failed", result["status"])
+        self.assertEqual("midi_commit_failed", result["error_code"])
+        self.assertEqual(b"external midi", self.midi.read_bytes())
 
 
 @unittest.skipUnless(DEFAULT_CHECKPOINT.exists(), "checkpoint is unavailable")

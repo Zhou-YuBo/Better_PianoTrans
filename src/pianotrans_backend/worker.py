@@ -9,7 +9,7 @@ from pathlib import Path
 from queue import Empty
 from typing import Any
 
-from .artifacts import ArtifactSnapshotError, snapshot_file
+from .artifacts import ArtifactSnapshotError, FileSnapshot, snapshot_file
 from .model import Task
 from .output import AtomicMidiOutput, OutputCommitError
 from .scheduler import WorkerHandle, WorkerResult
@@ -57,6 +57,7 @@ class ProcessWorkerStarter:
                 task.device_mode,
                 self.checkpoint,
                 self.project_root,
+                task.target_snapshot,
             ),
             daemon=True,
         )
@@ -74,6 +75,7 @@ def run_transcription_worker(
     device_mode: str,
     checkpoint: Path,
     project_root: Path,
+    target_snapshot: FileSnapshot | None = None,
 ) -> None:
     """Process entry. It must not print protocol data to standard output."""
     os.environ.setdefault("MPLCONFIGDIR", str(project_root / ".codex-cache" / "matplotlib"))
@@ -115,8 +117,6 @@ def run_transcription_worker(
                 }
             )
             return
-        output.commit(overwrite=overwrite)
-        output_snapshot = snapshot_file(midi_path)
         current_input = snapshot_file(input_path)
         if current_input.sha256 != input_snapshot.sha256:
             result_queue.put(
@@ -131,6 +131,8 @@ def run_transcription_worker(
                 }
             )
             return
+        output.commit(overwrite=overwrite, expected_target=target_snapshot)
+        output_snapshot = snapshot_file(midi_path)
         result_queue.put(
             {
                 "status": "succeeded",

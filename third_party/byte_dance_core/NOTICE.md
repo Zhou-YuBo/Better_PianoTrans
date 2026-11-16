@@ -22,9 +22,10 @@ Apache-2.0 全文位于 `LICENSE-APACHE-2.0.txt`。
 2026-07-18 复制时，以上文件与本地上游审查快照的 SHA-256 完全一致。
 此时尚未修改源码。
 
-## 归因
+## 论文作者与归因
 
-Qiuqiang Kong、Bochen Li、Xuchen Song、Yuan Wan、Yuxuan Wang。
+论文作者：Qiuqiang Kong、Bochen Li、Xuchen Song、Yuan Wan、Yuxuan Wang。
+这份名单来自原论文，不代表逐一核验了上游源码的贡献记录。
 
 论文：High-resolution Piano Transcription with Pedals by Regressing
 Onsets and Offsets Times，arXiv:2010.01815，2020。

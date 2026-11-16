@@ -120,6 +120,8 @@ class _ProductWorker(QObject):
             "collections": store.list_collections(),
             "deviceMode": store.get_setting("device_mode", "auto"),
             "detectedDevice": self._detected_device,
+            "databasePath": str(store.path.resolve(strict=False)),
+            "appVersion": os.environ.get("PIANOTRANS_APP_VERSION", "0.1.0-dev"),
             "revision": token,
         })
         self._revision = token
@@ -395,6 +397,25 @@ class WorkbenchFacade(QObject):
         folder = Path(path).parent
         if folder.is_dir():
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+
+    @Slot(str)
+    def openLegalFile(self, kind: str) -> None:
+        filenames = {"license": "LICENSE", "credits": "third_party/byte_dance_core/NOTICE.md",
+                     "third_party": "third_party"}
+        if kind not in filenames:
+            self.issue.emit("未知的许可文件")
+            return
+        if kind == "third_party":
+            candidates = [PROJECT_ROOT.parent / "licenses" / filenames[kind], PROJECT_ROOT / filenames[kind]]
+        elif kind == "credits":
+            candidates = [PROJECT_ROOT / filenames[kind], PROJECT_ROOT.parent / "licenses" / filenames[kind]]
+        else:
+            candidates = [PROJECT_ROOT / filenames[kind], PROJECT_ROOT.parent / filenames[kind]]
+        for path in candidates:
+            if path.is_file() or (kind == "third_party" and path.is_dir()):
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+                return
+        self.issue.emit("来源或许可文件不存在")
 
     @Slot(str)
     def copyText(self, value: str) -> None:

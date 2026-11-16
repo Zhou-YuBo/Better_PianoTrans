@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from .artifacts import ArtifactSnapshotError, FileSnapshot, snapshot_file
+
 
 class OutputCommitError(RuntimeError):
     """Raised when the requested final MIDI cannot be safely committed."""
@@ -25,11 +27,23 @@ class AtomicMidiOutput:
         self.cleanup()
         return self.temporary_path
 
-    def commit(self, overwrite: bool) -> None:
+    def commit(self, overwrite: bool, expected_target: FileSnapshot | None = None) -> None:
         if not self.temporary_path.is_file():
             raise OutputCommitError("临时 MIDI 文件不存在")
         if overwrite:
-            raise OutputCommitError("无法安全确认覆盖目标身份，请重新选择目标")
+            if expected_target is None:
+                raise OutputCommitError("缺少本次覆盖的目标指纹")
+            try:
+                current = snapshot_file(self.final_path)
+            except (OSError, ArtifactSnapshotError) as exc:
+                raise OutputCommitError("同名 MIDI 已变化，未覆盖") from exc
+            if current != expected_target:
+                raise OutputCommitError("同名 MIDI 已变化，未覆盖")
+            try:
+                os.replace(self.temporary_path, self.final_path)
+            except OSError as exc:
+                raise OutputCommitError("无法替换同名 MIDI") from exc
+            return
         try:
             os.link(self.temporary_path, self.final_path)
         except FileExistsError as exc:

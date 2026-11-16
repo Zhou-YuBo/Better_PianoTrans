@@ -8,6 +8,7 @@ from enum import StrEnum
 from pathlib import Path
 from uuid import uuid4
 
+from .artifacts import FileSnapshot
 from .devices import validate_device_mode
 
 
@@ -56,6 +57,7 @@ class Task:
     batch_size: int
     created_at: datetime
     overwrite: bool = False
+    target_snapshot: FileSnapshot | None = None
     device_mode: str = "auto"
     status: TaskStatus = TaskStatus.DRAFT
     attempt_id: str | None = None

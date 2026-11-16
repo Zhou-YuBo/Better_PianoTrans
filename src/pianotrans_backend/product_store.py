@@ -13,7 +13,7 @@ from uuid import uuid4
 from .artifacts import ArtifactSnapshotError, snapshot_file
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 SUPPORTED_AUDIO = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg"}
 
 
@@ -52,7 +52,7 @@ class ProductRepository:
 
     def _initialize(self) -> None:
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1, SCHEMA_VERSION):
+        if version not in (0, 1, 2, SCHEMA_VERSION):
             raise RuntimeError(f"Unsupported product database version: {version}")
         with self.db:
             self.db.executescript("""
@@ -84,6 +84,7 @@ class ProductRepository:
                     device_mode TEXT NOT NULL DEFAULT 'auto' CHECK(device_mode IN ('auto','cpu','cuda')),
                     queue_order INTEGER NOT NULL DEFAULT 0,
                     recovery_record_id TEXT,
+                    target_snapshot TEXT,
                     output_sha256 TEXT,
                     output_size INTEGER,
                     output_mtime INTEGER,
@@ -176,6 +177,10 @@ class ProductRepository:
                     for name, declaration in additions.items():
                         if name not in columns:
                             self.db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
+            if version in (1, 2):
+                columns = {row[1] for row in self.db.execute("PRAGMA table_info(history_attempts)")}
+                if "target_snapshot" not in columns:
+                    self.db.execute("ALTER TABLE history_attempts ADD COLUMN target_snapshot TEXT")
             self.db.execute("""CREATE UNIQUE INDEX IF NOT EXISTS pending_recovery ON work_items(recovery_record_id)
                 WHERE recovery_record_id IS NOT NULL""")
             self.db.execute("""CREATE UNIQUE INDEX IF NOT EXISTS active_recovery ON history_attempts(recovery_record_id)
@@ -463,11 +468,12 @@ class ProductRepository:
                 snapshot = item["snapshot"]
                 self.db.execute("""INSERT INTO history_attempts
                     (attempt_id,task_id,submission_id,input_path,midi_path,status,input_sha256,input_size,input_mtime,
-                     batch_size,device_mode,queue_order,recovery_record_id,queued_at)
-                    VALUES (?,?,?,?,?,'queued',?,?,?,?,?,?,?,?)""",
+                     batch_size,device_mode,queue_order,recovery_record_id,target_snapshot,queued_at)
+                    VALUES (?,?,?,?,?,'queued',?,?,?,?,?,?,?,?,?)""",
                     (attempt_id, item["taskId"], submission_id, work["inputPath"], item["midiPath"],
                      snapshot.sha256, snapshot.size_bytes, snapshot.mtime_ns, work["batchSize"],
-                     device_mode, order, work["recoveryRecordId"], _now()))
+                     device_mode, order, work["recoveryRecordId"],
+                     json.dumps(vars(item["targetSnapshot"])) if item.get("overwrite") else None, _now()))
                 self.db.execute("DELETE FROM work_items WHERE task_id=?", (item["taskId"],))
                 attempt_ids.append(attempt_id)
             self.db.commit()

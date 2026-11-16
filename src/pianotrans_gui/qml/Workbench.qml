@@ -683,9 +683,9 @@ ApplicationWindow {
                         color: engineButton.down ? "#e8e8e8" : engineButton.hovered ? "#f4f4f4" : root.paper
                         border.color: engineButton.hovered ? "#7d7d7d" : root.strongRule
                     }
-                    onClicked: deviceDialog.open()
+                    onClicked: settingsDialog.open()
                 }
-                WorkButton { text: "关闭"; small: true; onClicked: root.close() }
+                WorkButton { text: "设置"; small: true; onClicked: settingsDialog.open() }
             }
         }
 
@@ -1766,7 +1766,7 @@ ApplicationWindow {
             anchors.bottom: parent.bottom
             anchors.left: parent.left
             anchors.right: parent.right
-            height: 174
+            height: slot.height + 64
             color: root.shell
             Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: root.strongRule }
             Column {
@@ -1797,18 +1797,20 @@ ApplicationWindow {
                 }
                 Rectangle {
                     id: slot
-                    width: parent.width
-                    height: 100
+                    x: (parent.width - width) / 2
+                    width: Math.min(parent.width, 1400)
+                    height: Math.round(keyboard.width / 52 * 5.8) + 16
                     radius: 3
                     color: root.well
                     border.color: root.strongRule
                     Item {
                         id: keyboard
-                        anchors.fill: parent
-                        anchors.leftMargin: 8
-                        anchors.rightMargin: 8
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        anchors.horizontalCenter: parent.horizontalCenter
                         anchors.topMargin: 7
                         anchors.bottomMargin: 9
+                        width: parent.width - 16
                         property real keyWidth: width / 52
                         Repeater {
                             model: root.whiteNotes
@@ -1818,8 +1820,8 @@ ApplicationWindow {
                                 width: keyboard.keyWidth + 0.5
                                 height: keyboard.height
                                 gradient: Gradient {
-                                    GradientStop { position: 0; color: root.notes[modelData] !== undefined ? "#8a8a8a" : "#ffffff" }
-                                    GradientStop { position: 1; color: root.notes[modelData] !== undefined ? "#8a8a8a" : "#f2f2f2" }
+                                    GradientStop { position: 0; color: root.notes[modelData] !== undefined ? "#F0514E" : "#ffffff" }
+                                    GradientStop { position: 1; color: root.notes[modelData] !== undefined ? "#F0514E" : "#f2f2f2" }
                                 }
                                 border.color: root.notes[modelData] !== undefined ? "#5f5f5f" : "#8f8f8f"
                             }
@@ -1829,15 +1831,15 @@ ApplicationWindow {
                             delegate: Rectangle {
                                 required property int modelData
                                 x: root.whitesBefore(modelData) * keyboard.keyWidth - width / 2
-                                width: 17
+                                width: keyboard.keyWidth * 0.6
                                 height: keyboard.height * 0.58
                                 radius: 2
                                 z: 2
                                 gradient: Gradient {
-                                    GradientStop { position: 0; color: root.notes[modelData] !== undefined ? "#000000" : "#3a3a3a" }
-                                    GradientStop { position: 1; color: root.notes[modelData] !== undefined ? "#000000" : "#1a1a1a" }
+                                    GradientStop { position: 0; color: root.notes[modelData] !== undefined ? "#C30E0E" : "#3a3a3a" }
+                                    GradientStop { position: 1; color: root.notes[modelData] !== undefined ? "#C30E0E" : "#1a1a1a" }
                                 }
-                                border.color: "#111111"
+                                border.color: root.notes[modelData] !== undefined ? "#7d0808" : "#111111"
                             }
                         }
                     }
@@ -1935,36 +1937,86 @@ ApplicationWindow {
         }
     }
     Dialog {
-        id: deviceDialog; modal: true; anchors.centerIn: parent; width: 380; standardButtons: Dialog.NoButton
+        id: settingsDialog; modal: true; anchors.centerIn: parent
+        width: 600; height: Math.min(root.height - 40, 570)
+        standardButtons: Dialog.NoButton
         background: ModalBackground {}
         contentItem: ColumnLayout {
-            spacing: 10
-            ModalTag { section: "ENGINE"; label: "转录设备" }
-            ModalTitle { text: "选择转录设备" }
-            Label { Layout.fillWidth: true; wrapMode: Text.Wrap; text: "默认自动检测适配的显卡；不可用时选择 CPU。仅 GPU 不可用会明确报错。"; color: "#3d3d3d"; font.pixelSize: 12 }
-            RowLayout {
-                spacing: 6
-                Repeater {
-                    model: [{label: "自动", mode: "auto"}, {label: "仅 GPU", mode: "cuda"}, {label: "仅 CPU", mode: "cpu"}]
-                    delegate: WorkButton {
-                        required property var modelData
-                        text: modelData.label
-                        primary: root.data.deviceMode === modelData.mode
-                        onClicked: { facade.command("setDevice", {mode: modelData.mode}); deviceDialog.close() }
+            spacing: 0
+            ScrollView {
+                id: settingsScroll
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                leftPadding: 20
+                rightPadding: 20
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                ColumnLayout {
+                    width: settingsScroll.availableWidth
+                    spacing: 10
+                    Item { Layout.preferredHeight: 10 }
+                    ModalTag { section: "SETTINGS"; label: "应用设置" }
+                    ModalTitle { text: "Better PianoTrans 设置" }
+                    FieldLabel { text: "界面主题"; Layout.topMargin: 8 }
+                    Label {
+                        Layout.fillWidth: true; wrapMode: Text.Wrap
+                        text: "当前：第一版工作台。第二套视觉方案接入后，可在这里切换。"
+                        color: root.muted; font.pixelSize: 12
                     }
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: root.rule; Layout.topMargin: 6 }
+                    FieldLabel { text: "转录设备"; Layout.topMargin: 6 }
+                    Label { Layout.fillWidth: true; wrapMode: Text.Wrap; text: "自动检测显卡；仅 GPU 不可用时会报错。已提交的任务保持原设备模式。"; color: root.muted; font.pixelSize: 12 }
+                    RowLayout {
+                        spacing: 6
+                        WorkButton { text: "自动"; primary: root.data.deviceMode === "auto"; onClicked: facade.command("setDevice", {mode: "auto"}) }
+                        WorkButton { text: "仅 GPU"; primary: root.data.deviceMode === "cuda"; onClicked: facade.command("setDevice", {mode: "cuda"}) }
+                        WorkButton { text: "仅 CPU"; primary: root.data.deviceMode === "cpu"; onClicked: facade.command("setDevice", {mode: "cpu"}) }
+                    }
+                    Label { text: "当前检测结果：" + (root.data.detectedDevice === "cuda" ? "CUDA" : "CPU"); font.pixelSize: 11; color: root.faint }
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: root.rule; Layout.topMargin: 6 }
+                    FieldLabel { text: "数据库"; Layout.topMargin: 6 }
+                    Label {
+                        Layout.fillWidth: true; wrapMode: Text.WrapAnywhere
+                        text: root.data.databasePath || "正在读取…"
+                        font.family: root.mono; font.pixelSize: 11; color: root.ink
+                    }
+                    WorkButton {
+                        text: "打开数据库所在文件夹"; small: true
+                        enabled: !!root.data.databasePath
+                        onClicked: facade.openContainingFolder(root.data.databasePath)
+                    }
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: root.rule; Layout.topMargin: 6 }
+                    FieldLabel { text: "关于与致谢"; Layout.topMargin: 6 }
+                    Label { text: "版本：" + (root.data.appVersion || "开发版"); font.pixelSize: 12; color: root.ink }
+                    Label { Layout.fillWidth: true; wrapMode: Text.Wrap; text: "应用源码采用 GPL-3.0-only；第三方组件保留各自许可。"; color: root.muted; font.pixelSize: 12 }
+                    Label {
+                        Layout.fillWidth: true; wrapMode: Text.Wrap
+                        text: "钢琴转录核心来源于字节跳动的 Piano Transcription 项目。感谢孔秋强（Qiuqiang Kong）及原研究团队。Better PianoTrans 在此基础上开发，并修改了部分推理与 MIDI 输出代码。"
+                        color: root.ink; font.pixelSize: 12
+                    }
+                    Label { Layout.fillWidth: true; wrapMode: Text.Wrap; text: "完整论文作者名单、上游来源和修改记录见第三方来源说明。"; color: root.muted; font.pixelSize: 11 }
+                    RowLayout {
+                        spacing: 6
+                        WorkButton { text: "查看 GPL 许可"; small: true; onClicked: facade.openLegalFile("license") }
+                        WorkButton { text: "查看模型来源说明"; small: true; onClicked: facade.openLegalFile("credits") }
+                        WorkButton { text: "第三方许可目录"; small: true; onClicked: facade.openLegalFile("third_party") }
+                    }
+                    Item { Layout.preferredHeight: 10 }
                 }
             }
-            Label { Layout.fillWidth: true; wrapMode: Text.Wrap; text: "当前检测结果：" + (root.data.detectedDevice === "cuda" ? "CUDA" : "CPU") + "。已提交的任务保持原设备模式。"; font.pixelSize: 10; color: root.faint }
             RowLayout {
                 Layout.fillWidth: true
-                Item { Layout.fillWidth: true; Layout.preferredHeight: 1 }
-                WorkButton { text: "关闭"; onClicked: deviceDialog.close() }
+                Layout.margins: 10
+                WorkButton { text: "关闭软件"; onClicked: { settingsDialog.close(); root.close() } }
+                Item { Layout.fillWidth: true }
+                WorkButton { text: "完成"; onClicked: settingsDialog.close() }
             }
         }
     }
     Dialog {
         id: conflictDialog; modal: true; anchors.centerIn: parent; width: 560; standardButtons: Dialog.NoButton
         property var conflict: root.submitted.filter(function(item) { return item.status === "conflict" })[0] || null
+        property bool previewActive: !!(conflict && root.player.source && root.player.source.kind === "conflict"
+                                        && root.player.source.id === conflict.taskId)
         background: ModalBackground {}
         onOpened: applyRemaining.checked = false
         onRejected: {
@@ -1989,7 +2041,7 @@ ApplicationWindow {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 40
-                visible: conflictDialog.conflict && !conflictDialog.conflict.conflictOrigin
+                visible: !!(conflictDialog.conflict && !conflictDialog.conflict.previewError)
                 color: root.fill
                 border.color: root.rule
                 radius: 2
@@ -1999,7 +2051,7 @@ ApplicationWindow {
                     spacing: 10
                     WorkButton {
                         small: true
-                        text: root.player.source && root.player.source.kind === "conflict" && root.player.state === "playing" ? "暂停" : "试听"
+                        text: conflictDialog.previewActive && root.player.state === "playing" ? "暂停" : "试听"
                         enabled: conflictDialog.conflict && !conflictDialog.conflict.previewError
                         onClicked: {
                             if (root.player.source && root.player.source.kind === "conflict" && root.player.source.id === conflictDialog.conflict.taskId)
@@ -2013,14 +2065,14 @@ ApplicationWindow {
                         color: root.paper
                         border.color: root.strongRule
                         Rectangle {
-                            width: parent.width * (root.player.source && root.player.source.kind === "conflict"
+                            width: parent.width * (conflictDialog.previewActive
                                 ? Math.min(1, (root.player.positionSeconds || 0) / Math.max(1, root.player.durations.midi || 0)) : 0)
                             height: parent.height
                             color: root.accent
                         }
                     }
                     Label {
-                        text: root.player.source && root.player.source.kind === "conflict" ? root.shortTime(root.player.positionSeconds) + " / " + root.shortTime(root.player.durations.midi) : "00:00 / --:--"
+                        text: conflictDialog.previewActive ? root.shortTime(root.player.positionSeconds) + " / " + root.shortTime(root.player.durations.midi) : "00:00 / --:--"
                         font.pixelSize: 11; font.family: root.mono; color: root.muted
                     }
                 }
@@ -2038,9 +2090,13 @@ ApplicationWindow {
                 WorkButton {
                     text: "覆盖现有 MIDI"
                     primary: true
-                    enabled: !root.conflictError
-                    ToolTip.visible: hovered; ToolTip.text: "目标身份无法安全锁定时会拒绝覆盖"
-                    onClicked: facade.command("decideConflict", {submissionId: root.submissionId, taskId: conflictDialog.conflict.taskId, choice: "overwrite", applyToRemaining: applyRemaining.checked})
+                    enabled: !!conflictDialog.conflict
+                    ToolTip.visible: hovered; ToolTip.text: "若目标 MIDI 在转录期间变化，会停止覆盖"
+                    onClicked: {
+                        facade.command("decideConflict", {submissionId: root.submissionId, taskId: conflictDialog.conflict.taskId,
+                                                          choice: "overwrite", applyToRemaining: applyRemaining.checked})
+                        conflictDialog.close()
+                    }
                 }
             }
         }

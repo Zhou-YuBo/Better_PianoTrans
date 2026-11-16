@@ -129,6 +129,60 @@ class SubmissionServiceTests(unittest.TestCase):
         session = self.prepare(item)
         self.assertEqual("conflict", session["items"][0]["status"])
         self.assertNotIn("conflictOrigin", session["items"][0])
+        self.assertEqual(str(self.root / "unknown.mid"), self.service.preview_conflict_midi(
+            session["submissionId"], item["taskId"])["path"])
+
+    def test_overwrite_passes_confirmed_target_to_worker(self):
+        item = self.audio("over.wav")
+        target = self.root / "over.mid"
+        target.write_bytes(b"old midi")
+        session = self.prepare(item)
+        decided = self.service.decide_conflict(session["submissionId"], item["taskId"], "overwrite")
+        self.assertEqual("ready", decided["status"])
+        attempt = self.service.commit_submission(session["submissionId"])["queued"][0]
+        row = self.store.get_attempt(attempt)
+        self.assertIsNotNone(row["target_snapshot"])
+        task = self.starter.handles[0].task
+        self.assertTrue(task.overwrite)
+        self.assertEqual(snapshot_file(target), task.target_snapshot)
+
+    def test_changed_overwrite_target_rejected_before_enqueue(self):
+        item = self.audio("over.wav")
+        target = self.root / "over.mid"
+        target.write_bytes(b"old midi")
+        session = self.prepare(item)
+        self.service.decide_conflict(session["submissionId"], item["taskId"], "overwrite")
+        target.write_bytes(b"external")
+        with self.assertRaises(StaleRevision):
+            self.service.commit_submission(session["submissionId"])
+        self.assertEqual(b"external", target.read_bytes())
+
+    def test_changed_queued_target_rejected_before_worker(self):
+        first = self.audio("first.wav", b"one")
+        second = self.audio("second.wav", b"two")
+        target = self.root / "second.mid"
+        target.write_bytes(b"old midi")
+        session = self.prepare(first, second)
+        self.service.decide_conflict(session["submissionId"], second["taskId"], "overwrite")
+        attempts = self.service.commit_submission(session["submissionId"])["queued"]
+        target.write_bytes(b"external")
+        self.starter.handles[0].ready = True
+        self.service.tick()
+        self.assertEqual("failed", self.store.get_attempt(attempts[1])["status"])
+        self.assertEqual(b"external", target.read_bytes())
+
+    def test_batch_overwrite_rejects_shared_target(self):
+        first = self.audio("first.wav", b"one")
+        second = self.audio("second.wav", b"two")
+        (self.root / "same.mid").write_bytes(b"old midi")
+        for item in (first, second):
+            self.store.set_config(item["taskId"], {"midiFileName": "same.mid"}, item["revision"])
+        works = [self.store.get_work_item(item["taskId"]) for item in (first, second)]
+        session = self.prepare(*works)
+        with self.assertRaises(ValueError):
+            self.service.decide_conflict(session["submissionId"], works[0]["taskId"], "overwrite", True)
+        self.assertEqual(["conflict", "conflict"],
+                         [item["status"] for item in self.service._sessions[session["submissionId"]]["items"]])
 
     def test_batch_conflict_policy_applies_only_to_current_submission(self):
         a = self.audio("a.wav", b"one")

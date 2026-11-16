@@ -102,6 +102,14 @@ class ProductPlaybackTests(unittest.TestCase):
         midi.callback({"type": "ready", "duration": 42.5})
         self.assertEqual(42.5, self.player.snapshot()["durations"]["midi"])
 
+    def test_conflict_preview_replaces_existing_audio_session(self):
+        self.player.request(EntryRef(EntryKind.FAVORITE, self.favorite), "audio")
+        previous_audio = self.backends[-1][0]
+        preview = self.player.request_midi_path(str(self.midi), "conflict-task")
+        self.assertIn(("close", None), previous_audio.calls)
+        self.assertEqual({"kind": "conflict", "id": "conflict-task"}, preview["source"])
+        self.assertEqual("playing", preview["state"])
+
     def test_seek_resumes_midi_only_when_playing(self):
         result = self.player.request(EntryRef(EntryKind.FAVORITE, self.favorite), "midi")
         midi = self.backends[-1][1]

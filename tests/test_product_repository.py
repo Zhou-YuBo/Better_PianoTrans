@@ -216,7 +216,9 @@ class ProductRepositoryTests(unittest.TestCase):
         item = self.store.get_work_item("legacy-task")
         self.assertEqual(str(self.audio_a), item["inputPath"])
         self.assertIsNone(item["recoveryRecordId"])
-        self.assertEqual(2, self.store.db.execute("PRAGMA user_version").fetchone()[0])
+        self.assertEqual(3, self.store.db.execute("PRAGMA user_version").fetchone()[0])
+        self.assertIn("target_snapshot", {row[1] for row in self.store.db.execute(
+            "PRAGMA table_info(history_attempts)")})
 
     def test_collection_rename_and_failed_membership_roll_back(self):
         self.store.create_attempt("a1", "t1", "s1", str(self.audio_a), "x.mid", "a" * 64, 2, 3)
